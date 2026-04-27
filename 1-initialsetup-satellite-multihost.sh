@@ -148,8 +148,8 @@ for os in ${OFFERED_OS[*]}; do
       id=`hammer lifecycle-environment info --name lce_$prom --organization-id $org_id --fields id`
       if [ -z "$id" ]; then
         # Create, or default? For now: default
-	# Placeholder (encountered local issue creating LCE; LCE creation to replace below line)
-	id=`hammer lifecycle-environment info --name Library --organization-id $org_id --fields id`
+	    # LCE Creation needs to happen here.
+	    id=`hammer lifecycle-environment info --name Library --organization-id $org_id --fields id`
       fi
       lce_id=`echo $id|sed -e 's+^Id: ++'`
       
