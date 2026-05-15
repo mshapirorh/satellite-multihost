@@ -45,7 +45,7 @@ for os in rhel9; do
   # RPM filter.
 
   if [ $PUBLISH_VERSION = "true" ]; then
-    # Example command to list filter IDs:
+    # Example command to list filter IDs: 
     # hammer --output json content-view filter list --content-view-id $cv_id --types erratum --fields 'filter id' --name filter_periodically_updates
 
     # Because we're looking for a specific filter name, there should be only one.
@@ -67,7 +67,7 @@ for os in rhel9; do
   if [ $PUBLISH_VERSION != "true" -o "$success" = "0" ]; then
     # Either we're publishing and it was successful, or we're not publishing. Either way, get the highest
     # version ID, which should be the latest version.
-    # Example hammer command we can use to identify recent published CV (Happy path):
+    # Example hammer command we can use to identify recent published CV (Happy path): 
     # hammer --output json content-view version list --content-view-id $cv_id
     latest_version=`hammer --output json content-view version list --content-view-id $cv_id|jq '.[].Id'|sort -n|tail -1`
 
@@ -82,3 +82,4 @@ for os in rhel9; do
     true
   fi
 done
+
