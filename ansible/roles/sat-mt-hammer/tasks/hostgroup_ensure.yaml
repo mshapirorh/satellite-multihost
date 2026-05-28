@@ -1,0 +1,170 @@
+---
+# -----------------------------------------------------------------------------
+# Query the hostgroup from Satellite.
+#
+# This task determines whether the hierarchical hostgroup already exists.
+# -----------------------------------------------------------------------------
+- name: Lookup hostgroup
+  command:
+    argv:
+      - hammer
+      - --output
+      - json
+      - hostgroup
+      - info
+      - --title
+      - "{{ hostgroup_title }}"
+  register: hostgroup_lookup
+  failed_when: false
+  changed_when: false
+
+# -----------------------------------------------------------------------------
+# Create the hostgroup if it does not already exist.
+#
+# This task supports both root-level and nested hierarchical hostgroups.
+# -----------------------------------------------------------------------------
+- name: Create hostgroup
+  command:
+    argv:
+      - hammer
+      - hostgroup
+      - create
+      - --name
+      - "{{ hostgroup_name }}"
+      - --organization-id
+      - "{{ organization_id }}"
+      - --location-id
+      - "{{ location_id }}"
+      - --lifecycle-environment-id
+      - "{{ lifecycle_environment_id }}"
+      - --content-view-id
+      - "{{ content_view_id }}"
+      - --parent-id
+      - "{{ parent_hostgroup_id | default('') }}"
+  when: hostgroup_lookup.rc != 0
+
+# -----------------------------------------------------------------------------
+# Refresh the hostgroup lookup after creation.
+#
+# This ensures downstream orchestration has access to the hostgroup ID.
+# -----------------------------------------------------------------------------
+- name: Refresh hostgroup lookup
+  command:
+    argv:
+      - hammer
+      - --output
+      - json
+      - hostgroup
+      - info
+      - --title
+      - "{{ hostgroup_title }}"
+  register: hostgroup_lookup_final
+  changed_when: false
+
+# -----------------------------------------------------------------------------
+# Extract the numeric hostgroup ID from hammer output.
+#
+# Hammer returns human-readable text that must be parsed.
+# -----------------------------------------------------------------------------
+- name: Extract hostgroup ID
+  set_fact:
+    hostgroup_id: >-
+      {{
+        (
+          hostgroup_lookup_final.stdout
+          | from_json
+        ).Id
+      }}
+
+- name: Retrieve current list of activation keys for hostgroup
+  set_fact:
+    activation_key_list: >-
+      {{
+        ( hostgroup_lookup_final.stdout | from_json ).Parameters|selectattr('name', 'eq', 'kt_activation_keys')|map(attribute='value')|list
+      }}
+  when: associate_activation_key
+
+# Assumes that the kt_activation_keys parameter can appear only once for a given host group.
+- name: Convert the activation key string to a list
+  set_fact:
+    activation_keys: "{{ activation_key_list[0].split(',') }}"
+  when: associate_activation_key and activation_key_list|length > 0
+
+- name: Convert the empty string to an empty list
+  set_fact:
+    activation_keys: [ ]
+  when: associate_activation_key and activation_key_list|length == 0
+
+- name: Build the activation key name
+  set_fact:
+    activation_key: "ak_{{ os }}_{{ location }}_{{ lce }}"
+  when: associate_activation_key
+
+- name: Check if the AK is already associated with the host group
+  set_fact:
+    need_association: true
+  when: associate_activation_key and (activation_key not in activation_keys)
+
+- name: Fallback for the AK association check
+  set_fact:
+    need_association: false
+  when: not associate_activation_key or (activation_key in activation_keys)
+
+- name: Build the new list of activation keys for the hostgroup
+  set_fact:
+    activation_keys: >-
+      {{ activation_keys + [ activation_key ] }}
+  when: need_association
+
+- name: Associate the activation key with the host group
+  command:
+    argv:
+      - hammer
+      - hostgroup
+      - set-parameter
+      - --hostgroup-id
+      - "{{ hostgroup_id }}"
+      - --name
+      - kt_activation_keys
+      - --value
+      - "{{ activation_keys|join(',') }}"
+  when: need_association
+
+- name: Check if the host group is already associated with the organisation
+  command:
+    argv:
+      - hammer
+      - hostgroup
+      - info
+      - --id
+      - "{{ hostgroup_id }}"
+      - --organization-id
+      - "{{ organization_id }}"
+  register: hg_org_check
+  failed_when: false
+  changed_when: false
+
+- name: Get the current list of organisations associated with the host group
+  set_fact:
+    organisation_id_list: >-
+      {{
+        ( hostgroup_lookup_final.stdout | from_json ).Organizations|map(attribute='Id')|list
+      }}
+  when: hg_org_check.rc != 0
+
+- name: Add the organisation to the list of organisations
+  set_fact:
+    organisation_id_list: "{{ organisation_id_list + [ organization_id ] }}"
+  when: hg_org_check.rc != 0
+
+- name: Update the host group with the new organisation list
+  command:
+    argv:
+      - hammer
+      - hostgroup
+      - update
+      - --id
+      - "{{ hostgroup_id }}"
+      - --organization-ids
+      - "{{ organisation_id_list|join(',') }}"
+  when: hg_org_check.rc != 0

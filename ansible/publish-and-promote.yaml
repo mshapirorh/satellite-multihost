@@ -1,0 +1,70 @@
+---
+- name: Publish and promote content views
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    org_name: sjl_t2
+    do_publish: true
+    do_promote: true
+
+    promote_to_env:
+      - canary
+
+    operating_systems:
+      - rhel9
+      - rhel8
+      - rhel10
+
+  tasks:
+    - name: Retrieve the organisation information by running hammer organization info --name "{{ org_name }}" --output json
+      ansible.builtin.command:
+        argv:
+          - hammer
+          - --output
+          - json
+          - organization
+          - info
+          - --name
+          - "{{ org_name }}"
+      register: org_lookup
+      changed_when: false
+
+    - name: Store the organisation ID
+      set_fact:
+        organization_id: >-
+          {{
+            (
+              org_lookup.stdout
+              | from_json
+            ).Id
+          }}
+
+    # -------------------------------------------------------------------------
+    # Publish operating system content views.
+    #
+    # This reproduces the publication workflow from the original shell script.
+    # -------------------------------------------------------------------------
+    - name: Publish content views
+      include_role:
+        name: sat-mt-hammer
+        tasks_from: content_view_publish.yaml
+      vars:
+        content_view_name: "cv_{{ item }}"
+      loop: "{{ operating_systems }}"
+      when: do_publish
+
+    # -------------------------------------------------------------------------
+    # Promote operating system content views.
+    #
+    # This reproduces lifecycle promotion behavior from the original script.
+    # -------------------------------------------------------------------------
+    - name: Promote content views
+      include_role:
+        name: sat-mt-hammer
+        tasks_from: content_view_promote.yaml
+      vars:
+        content_view_name: "cv_{{ item.0 }}"
+        lifecycle_environment_name: "lce_{{ item.1 }}"
+      loop: "{{ offered_os | product(promote_to_env) | list }}"
+      when: do_promote
